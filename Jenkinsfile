@@ -6,6 +6,10 @@ pipeline {
     environment {
         IMAGE_NAME  = "springbootapp"
         IMAGE_TAG   = "latest"
+        ACR_NAME    = "jenkinsazure"
+        TENANT_ID   = "ec78375d-0db0-42cf-82a6-2e6403e95936"
+        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
+        FULL_IMAGE_NAME = "${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
     }
     stages {
         stage('Checkout From Git') {
@@ -59,6 +63,30 @@ pipeline {
                 script {
                     echo 'Docker Build Started'
                     docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                }
+            }
+        }
+        stage ('ACR LOGIN'){
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'azure-acr-sp', usernameVariable: 'AZURE_USERNAME',passwordVariable: 'AZURE_PASSWORD')]){
+                    script {
+                        echo "Azure login to container registry"
+                        sh '''
+                        az login --service-principal -u $AZURE_USERNAME -p $AZURE_PASSWORD --tenant $TENANT_ID
+                        az acr login --name $ACR_NAME
+                        '''
+                    }
+                }
+            }
+        }
+        stage('Docker Push to ACR'){
+            steps {
+                script {
+                    echo "Docker Push image to Registry" 
+                    sh '''
+                    docker tag ${IMAGE_NAME}:${IMAGE_TAGE} ${FULL_IMAGE_NAME}
+                    docker push ${FULL_IMAGE_NAME}
+                    '''
                 }
             }
         }
