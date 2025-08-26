@@ -84,7 +84,7 @@ pipeline {
                 script {
                     echo "Docker Push image to Registry" 
                     sh '''
-                    docker tag ${IMAGE_NAME}:${IMAGE_TAGE} ${FULL_IMAGE_NAME}
+                    docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${FULL_IMAGE_NAME}
                     docker push ${FULL_IMAGE_NAME}
                     '''
                 }
