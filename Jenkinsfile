@@ -32,7 +32,7 @@ pipeline {
                         -Dsonar.oraganization=bkrrajmali \
                         -Dsonar.projectName=SpringBootPet \
                         -Dsonar.projectKey=bkrrajmali_springbootpet \
-                        -Dsonar.java.binaries= . 
+                        -Dsonar.java.binaries=.
                     '''
                 }
             }
