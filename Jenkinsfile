@@ -105,5 +105,19 @@ pipeline {
          }
        }
      }
-  }
+     stage ('Deploy to AKS') {
+        steps {
+            withCredentials([usernamePassword(credentialsId: 'azure-acr-sp', usernameVariable: 'AZURE_USERNAME',passwordVariable: 'AZURE_PASSWORD')]){
+            script {
+                    echo "Azure Loginto AKS"
+                    sh '''
+                    az login --service-principal -u $AZURE_USERNAME -p $AZURE_PASSWORD --tenant $TENANT_ID
+                    sh "kubectl apply -f k8s/sprinboot-deployment.yaml"
+                    '''
+                    }
+                }
+            }
+        }
+    }
 }
+
