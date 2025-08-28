@@ -112,7 +112,7 @@ pipeline {
                     echo "Azure Loginto AKS"
                     sh '''
                     az login --service-principal -u $AZURE_USERNAME -p $AZURE_PASSWORD --tenant $TENANT_ID
-                    sh 'kubectl apply -f /var/lib/jenkins/workspace/SpringbootPetClinic/k8s/sprinboot-deployment.yaml'
+                    kubectl apply -f k8s/sprinboot-deployment.yaml
                     '''
                     }
                 }
