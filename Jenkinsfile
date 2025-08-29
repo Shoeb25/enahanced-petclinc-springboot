@@ -45,7 +45,7 @@ pipeline {
                 }
             }
         }
-         stage('Maven Package') {
+        stage('Maven Package') {
             steps {
                 echo "This is Maven Package Stage"
                 sh 'mvn package'
@@ -67,48 +67,52 @@ pipeline {
             }
         } 
         stage('Sonar Quality Gate (poll)') {
-  steps {
-    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-      sh '''
-        set -e
+            steps {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    sh '''
+                        set -e
 
-        # Use the Maven analysis report (the one with coverage)
-        TASK_FILE=target/sonar/report-task.txt
-        if [ ! -f "$TASK_FILE" ]; then
-          echo "ERROR: $TASK_FILE not found"; ls -la target || true; exit 1
-        fi
+                        # Use the Maven analysis report (the one with coverage)
+                        TASK_FILE=target/sonar/report-task.txt
+                        if [ ! -f "$TASK_FILE" ]; then
+                          echo "ERROR: $TASK_FILE not found"; ls -la target || true; exit 1
+                        fi
 
-        TASK_URL=$(grep -oP "(?<=ceTaskUrl=).*" "$TASK_FILE")
-        echo "Polling SonarCloud task: $TASK_URL"
+                        TASK_URL=$(grep -oP "(?<=ceTaskUrl=).*" "$TASK_FILE")
+                        echo "Polling SonarCloud task: $TASK_URL"
 
-        # Poll up to 15 minutes (180 * 5s)
-        for i in $(seq 1 180); do
-          RESP=$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL")
-          STATUS=$(echo "$RESP" | jq -r '.task.status')
-          echo "Compute Engine status: $STATUS"
-          if [ "$STATUS" = "SUCCESS" ]; then
-            ANALYSIS_ID=$(echo "$RESP" | jq -r '.task.analysisId'); break
-          elif [ "$STATUS" = "FAILED" ]; then
-            echo "Sonar analysis FAILED"; exit 1
-          fi
-          sleep 5
-        done
+                        # Poll up to 15 minutes (180 * 5s)
+                        for i in $(seq 1 180); do
+                          RESP=$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL")
+                          STATUS=$(echo "$RESP" | jq -r '.task.status')
+                          echo "Compute Engine status: $STATUS"
+                          if [ "$STATUS" = "SUCCESS" ]; then
+                            ANALYSIS_ID=$(echo "$RESP" | jq -r '.task.analysisId'); break
+                          elif [ "$STATUS" = "FAILED" ]; then
+                            echo "Sonar analysis FAILED"; exit 1
+                          fi
+                          sleep 5
+                        done
 
-        [ -n "$ANALYSIS_ID" ] || { echo "Timed out waiting for analysis"; exit 1; }
+                        [ -n "$ANALYSIS_ID" ] || { echo "Timed out waiting for analysis"; exit 1; }
 
-        QG=$(curl -s -u "$SONAR_TOKEN:" \
-          "https://sonarcloud.io/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" \
-          | jq -r '.projectStatus.status')
+                        QG=$(curl -s -u "$SONAR_TOKEN:" \
+                          "https://sonarcloud.io/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" \
+                          | jq -r '.projectStatus.status')
 
-        echo "Quality Gate: $QG"
-        [ "$QG" = "OK" ] || { echo "Quality Gate FAILED: $QG"; exit 1; }
-      '''
-    }
-  }
-}
-
-        stage ('Docker Build'){
+                        echo "Quality Gate: $QG"
+                        [ "$QG" = "OK" ] || { echo "Quality Gate FAILED: $QG"; exit 1; }
+                    '''
+                }
+            }
+        }
+        stage('Docker Build') {
             steps {
                 script {
                     echo 'Docker Build Started'
                     docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                }
+            }
+        }
+    }
+}
