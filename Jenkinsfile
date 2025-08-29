@@ -1,7 +1,7 @@
 pipeline {
     agent any
     tools {
-        maven 'maven'
+        maven 'Maven'   // must match Maven installation name in Jenkins Global Tool Configuration
     }
     environment {
         IMAGE_NAME  ="springbootapp"
