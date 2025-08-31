@@ -1,37 +1,45 @@
 pipeline {
     agent any
     tools {
-        maven 'Maven'  // Must match your Maven tool name in Jenkins
+        maven 'Maven'  // Make sure the Jenkins tool name matches
     }
     environment {
         IMAGE_NAME  = "springbootapp"
-        IMAGE_TAG   = "${BUILD_NUMBER}"   // dynamic tag for each build
+        IMAGE_TAG   = "${BUILD_NUMBER}"
         ACR_NAME    = "petclinicacrshoeb"
-        AKS_NAME    = "petclinic-aks"
         RG_NAME     = "petclinic-rg"
+        AKS_NAME    = "petclinic-aks"
+        AZ_CLI      = "/usr/bin/az"   // Adjust if your az CLI is in a different path
+        TENANT_ID   = "8beb7f81-72a1-422a-8142-a321dc9e4702"
     }
     stages {
-        stage('Checkout Code') {
+        stage('Checkout From Git') {
             steps {
                 git branch: 'prod', url: 'https://github.com/Shoeb25/enahanced-petclinc-springboot.git'
             }
         }
 
-        stage('Maven Validate') {
+        stage('Verify k8s Manifests') {
             steps {
-                sh 'mvn validate'
+                sh 'ls -la k8s/'
             }
         }
 
-        stage('Maven Compile') {
+        stage('Maven Validate & Compile') {
             steps {
-                sh 'mvn compile'
+                sh 'mvn clean validate compile'
+            }
+        }
+
+        stage('Maven Package') {
+            steps {
+                sh 'mvn package'
             }
         }
 
         stage('Sonar Analysis') {
             environment {
-                SCANNER_HOME = tool 'SonarScanner'  // Must match Jenkins tool name
+                SCANNER_HOME = tool 'SonarScanner' // Jenkins Sonar Scanner tool
             }
             steps {
                 withSonarQubeEnv('sonarserver') {
@@ -46,32 +54,24 @@ pipeline {
             }
         }
 
-        stage('Maven Package') {
-            steps {
-                sh 'mvn package'
-            }
-        }
-
         stage('Sonar Quality Gate') {
             steps {
                 withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                     sh '''
-                        set -e
-                        TASK_FILE=target/sonar/report-task.txt
-                        if [ ! -f "$TASK_FILE" ]; then echo "ERROR: $TASK_FILE not found"; exit 1; fi
-                        TASK_URL=$(grep -oP "(?<=ceTaskUrl=).*" "$TASK_FILE")
-                        for i in $(seq 1 180); do
-                          RESP=$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL")
-                          STATUS=$(echo "$RESP" | jq -r '.task.status')
-                          if [ "$STATUS" = "SUCCESS" ]; then ANALYSIS_ID=$(echo "$RESP" | jq -r '.task.analysisId'); break
-                          elif [ "$STATUS" = "FAILED" ]; then echo "Sonar analysis FAILED"; exit 1; fi
-                          sleep 5
-                        done
-                        [ -n "$ANALYSIS_ID" ] || { echo "Timed out waiting for analysis"; exit 1; }
-                        QG=$(curl -s -u "$SONAR_TOKEN:" \
-                          "https://sonarcloud.io/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" \
-                          | jq -r '.projectStatus.status')
-                        [ "$QG" = "OK" ] || { echo "Quality Gate FAILED: $QG"; exit 1; }
+                    set -e
+                    TASK_FILE=target/sonar/report-task.txt
+                    if [ ! -f "$TASK_FILE" ]; then echo "ERROR: $TASK_FILE not found"; exit 1; fi
+                    TASK_URL=$(grep -oP "(?<=ceTaskUrl=).*" "$TASK_FILE")
+                    for i in $(seq 1 180); do
+                        RESP=$(curl -s -u "$SONAR_TOKEN:" "$TASK_URL")
+                        STATUS=$(echo "$RESP" | jq -r '.task.status')
+                        if [ "$STATUS" = "SUCCESS" ]; then ANALYSIS_ID=$(echo "$RESP" | jq -r '.task.analysisId'); break
+                        elif [ "$STATUS" = "FAILED" ]; then echo "Sonar analysis FAILED"; exit 1; fi
+                        sleep 5
+                    done
+                    [ -n "$ANALYSIS_ID" ] || { echo "Timed out waiting for analysis"; exit 1; }
+                    QG=$(curl -s -u "$SONAR_TOKEN:" "https://sonarcloud.io/api/qualitygates/project_status?analysisId=$ANALYSIS_ID" | jq -r '.projectStatus.status')
+                    [ "$QG" = "OK" ] || { echo "Quality Gate FAILED: $QG"; exit 1; }
                     '''
                 }
             }
@@ -80,7 +80,7 @@ pipeline {
         stage('Docker Build & Push to ACR') {
             steps {
                 script {
-                    docker.withRegistry("https://${ACR_NAME}.azurecr.io", "acr-credentials") {
+                    docker.withRegistry("https://${ACR_NAME}.azurecr.io", 'acr-credentials') {
                         def appImage = docker.build("${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}")
                         appImage.push()
                     }
@@ -91,18 +91,13 @@ pipeline {
         stage('Deploy to AKS') {
             steps {
                 script {
-                    // Get AKS credentials
-                    sh "az aks get-credentials --resource-group ${RG_NAME} --name ${AKS_NAME} --overwrite-existing"
-
-                    // Apply Kubernetes manifests
-                    sh "kubectl apply -f k8s/deployment.yaml"
-                    sh "kubectl apply -f k8s/service.yaml"
-
-                    // Update deployment with new image tag
-                    sh "kubectl set image deployment/springboot-deployment springboot-container=${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}"
-
-                    // Wait for rollout to complete
-                    sh "kubectl rollout status deployment/springboot-deployment"
+                    sh """
+                        ${AZ_CLI} aks get-credentials --resource-group ${RG_NAME} --name ${AKS_NAME} --overwrite-existing
+                        kubectl apply -f k8s/deployment.yaml
+                        kubectl apply -f k8s/service.yaml
+                        kubectl set image deployment/springboot-deployment springboot-container=${ACR_NAME}.azurecr.io/${IMAGE_NAME}:${IMAGE_TAG}
+                        kubectl rollout status deployment/springboot-deployment
+                    """
                 }
             }
         }
